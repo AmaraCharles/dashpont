@@ -82,7 +82,7 @@ export default function FundAccount() {
       </Card>
 
       <div className="text-center text-xs text-muted-foreground pt-8 border-t">
-        COPYRIGHT ©2025 Dashponts, All rights Reserved
+        COPYRIGHT ©2025 smartgentrade, All rights Reserved
       </div>
     </div>
   );

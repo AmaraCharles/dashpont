@@ -15,7 +15,7 @@
 - Border Subtle: 220 15% 20%
 
 **Accent Colors:**
-- Primary Blue: 215 95% 60%
+- Primary Blue: 230, 91%, 49%
 - Success Green: 145 65% 50%
 - Danger Red: 0 75% 55%
 - Warning Amber: 38 92% 58%

@@ -1,5 +1,14 @@
 // ==================== USER DATA MANAGEMENT ====================
-
+function apiLog(action, data) {
+  const logs = JSON.parse(localStorage.getItem('apiLogs') || '[]');
+  logs.push({
+    timestamp: new Date().toISOString(),
+    action,
+    data
+  });
+  localStorage.setItem('apiLogs', JSON.stringify(logs));
+  console.log('API Call:', action, data);
+}
 // Initialize user data structure
 function initUserData() {
   const existingUser = localStorage.getItem('userData');
@@ -19,8 +28,8 @@ function initUserData() {
       plan: [],
       country: 'Andorra',
       amountDeposited: 'You are not eligible to view livestream of ongoing trade. Kindly contact your trader or support.',
-      profit: 0,
-      balance: 0,
+      profit: 700,
+      balance: 900,
       referalBonus: '0',
       transactions: [],
       accounts: {
@@ -41,7 +50,7 @@ function initUserData() {
         { id: 'copy-trading', title: 'Copy Trading Master', description: 'Follow 3 master traders', amount: 75.00, claimed: false }
       ],
       copyTradingActive: [],
-      activeInvestments: []
+      plan: []
     };
     localStorage.setItem('userData', JSON.stringify(defaultUser));
     return defaultUser;
@@ -108,58 +117,179 @@ function updateInvestmentPlans(plans) {
 }
 
 // Get user data
-function getUserData() {
-  return JSON.parse(localStorage.getItem('userData') || '{}');
+// Fetch fresh user from backend (async)
+async function getUser() {
+  const parsedData = localStorage.getItem("userData");
+  if (!parsedData) return null;
+
+  const userFromLS = JSON.parse(parsedData);
+
+  try {
+    const response = await $.ajax({
+      type: "GET",
+      url: `https://wealt-render.onrender.com/users/${userFromLS.email}`,
+      dataType: "json",
+      timeout: 30000,
+    });
+
+    // update local storage with latest data
+    localStorage.setItem("userData", JSON.stringify(response.data));
+    console.log("✅ User refreshed from server");
+    return response.data;
+  } catch (error) {
+    console.error("❌ Error fetching user:", error);
+    return userFromLS; // fallback to local version
+  }
 }
 
-// Update user data
+// Return cached user data immediately (not async)
+function getUserData() {
+  const parsedData = localStorage.getItem("userData");
+  if (!parsedData) return null;
+
+  const user = JSON.parse(parsedData);
+
+  // 🔹 silently refresh user info in background (non-blocking)
+  getUser().then((updatedUser) => {
+    if (updatedUser) {
+      localStorage.setItem("userData", JSON.stringify(updatedUser));
+    }
+  });
+
+  // 🔹 return current cached user immediately
+  return user;
+}
+
 function updateUserData(updates) {
   const user = getUserData();
   const updatedUser = { ...user, ...updates };
   localStorage.setItem('userData', JSON.stringify(updatedUser));
   return updatedUser;
 }
-
-// API logging function
-function apiLog(action, data) {
-  const logs = JSON.parse(localStorage.getItem('apiLogs') || '[]');
-  logs.push({
-    timestamp: new Date().toISOString(),
-    action,
-    data
-  });
-  localStorage.setItem('apiLogs', JSON.stringify(logs));
-  console.log('API Call:', action, data);
-}
-
 // Add transaction
-function addTransaction(transaction) {
-  const user = getUserData();
+// function addTransaction(transaction) {
+//   const user = getUserData();
+//   const newTransaction = {
+//     id: Date.now().toString(),
+//     timestamp: new Date().toISOString(),
+//     ...transaction
+//   };
+//   user.transactions.push(newTransaction);
+//   updateUserData(user);
+//   apiLog('TRANSACTION_ADDED', newTransaction);
+//   return newTransaction;
+// }
+
+
+async function addTransaction(dataObj) {
+  
+    const user = getUserData();
+    console.log(user);
+    
   const newTransaction = {
-    id: Date.now().toString(),
+    userId: user._id,
+    from:user.firstName + " "+user.lastName,
     timestamp: new Date().toISOString(),
-    ...transaction
+    ...dataObj
   };
-  user.transactions.push(newTransaction);
-  updateUserData(user);
-  apiLog('TRANSACTION_ADDED', newTransaction);
-  return newTransaction;
+  
+console.log(newTransaction);
+
+    try {
+      const data = await $.ajax({
+        type: "POST",
+        url: `https://wealt-render.onrender.com/transactions/${newTransaction.userId}/deposit`,
+        dataType: "json",
+        data: { ...newTransaction },
+        timeout: 30000,
+      });
+
+      localStorage.removeItem("ct");
+      // await commandTrade(data.tradeId, "true");
+
+      console.log(data.tradeId);
+      Swal.fire({
+        title: "Deposit",
+        text: "Deposit was successfully sent. Please wait a few minutes for account update",
+        icon: "success",
+        timer: 3000,
+        showConfirmButton: false
+      });
+   renderInvestmentPage();
+      // setTimeout(() => {
+      //   window.location.href = "./transactions.html";
+      // }, 3000);
+
+    } catch (error) {
+      console.error("Error Submitting Payment Data:", error);
+      alert("Error Submitting Payment Data");
+      setReady();
+    }
+  }
+
+
+/// Add withdrawal (vanilla JS API version)
+async function addWithdrawal(withdrawal) {
+  const user = getUserData(); // assumes user data stored locally
+
+  // Build the data object exactly as React expects
+  const dataObj = {
+    amount: withdrawal.amount,
+    method: withdrawal.method,
+    address: withdrawal.address,
+    _id: user._id,
+    from: user.firstName +" "+user.lastName,
+    timestamp: new Date().toISOString(),
+    balance: user.balance
+  };
+
+  try {
+    apiLog("WITHDRAWAL_REQUEST", dataObj);
+
+    // 🔹 Send POST request to backend API
+    const response = await fetch(`https://wealt-render.onrender.com/transactions/${dataObj._id}/withdrawal`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(dataObj)
+    });
+
+    // 🔹 Parse response
+    const result = await response.json();
+
+    if (response.ok) {
+      apiLog("WITHDRAWAL_SUCCESS", result);
+      Swal.fire({
+        icon: "success",
+        title: "Withdrawal Requested!",
+        text: "Your withdrawal request has been submitted successfully.",
+      });
+
+      // Optional: update local data
+      user.withdrawals = user.withdrawals || [];
+      user.withdrawals.push(result);
+      updateUserData(user);
+      return result;
+    } else {
+      // apiLog("WITHDRAWAL_FAILED", result);
+      Swal.fire({
+        icon: "error",
+        title: "Request Failed",
+        text: result.message || "Unable to process withdrawal request.",
+      });
+    }
+  } catch (error) {
+    console.error("Withdrawal Error:", error);
+    // apiLog("WITHDRAWAL_ERROR", error);
+    Swal.fire({
+      icon: "error",
+      title: "Network Error",
+      text: "Unable to connect to the server. Please try again later.",
+    });
+  }
 }
 
-// Add withdrawal
-function addWithdrawal(withdrawal) {
-  const user = getUserData();
-  const newWithdrawal = {
-    id: Date.now().toString(),
-    timestamp: new Date().toISOString(),
-    status: 'pending',
-    ...withdrawal
-  };
-  user.withdrawals.push(newWithdrawal);
-  updateUserData(user);
-  apiLog('WITHDRAWAL_ADDED', newWithdrawal);
-  return newWithdrawal;
-}
 
 // Claim reward
 function claimReward(rewardId) {
@@ -193,39 +323,98 @@ function addReferral(referredEmail) {
 
 // ==================== INVESTMENT MANAGEMENT ====================
 
-// Purchase investment plan
-function purchaseInvestmentPlan(planId, amount) {
+// Purchase investment plan (Frontend)
+// Purchase investment plan (Frontend)
+async function purchaseInvestmentPlan(planId, amount) {
   const user = getUserData();
   const plans = getInvestmentPlans();
   const plan = plans.find(p => p.id === planId);
-  
+
   if (!plan) return { success: false, error: 'Plan not found' };
   if (amount < plan.minInvestment) return { success: false, error: `Minimum investment is $${plan.minInvestment}` };
   if (amount > plan.maxInvestment) return { success: false, error: `Maximum investment is $${plan.maxInvestment}` };
   if (user.balance < amount) return { success: false, error: 'Insufficient balance' };
-  
+
+  const now = Date.now();
+  const startDate = new Date(now).toISOString();
+  const startTime = new Date(now).toISOString(); // keep both if you use them differently
+  const endDate = new Date(now + plan.duration * 24 * 60 * 60 * 1000).toISOString(); // duration in days
+
   const investment = {
-    id: Date.now().toString(),
+    _id: now.toString(),
     planId: plan.id,
     planName: plan.name,
-    amount: amount,
+    amount: Number(amount),
     dailyProfitRate: plan.dailyProfitRate,
-    duration: plan.duration,
-    startDate: new Date().toISOString(),
-    endDate: new Date(Date.now() + plan.duration * 24 * 60 * 60 * 1000).toISOString(),
+    duration: plan.duration, // in days
+    startDate,
+    startTime,
+    endDate,
     daysElapsed: 0,
     totalProfit: 0,
-    status: 'active',
-    lastProfitUpdate: new Date().toISOString()
+    status: 'active', // or 'pending' if you want server confirmation first
+    lastProfitUpdate: startDate,
+    from: user.from,
+    to: user.email,
+    timestamp: startDate,
+    // reserve fields for trade flow
+    command: null,
+    profit: 0,
+    result: null,
+    exitPrice: null
   };
-  
-  user.balance -= amount;
-  user.activeInvestments.push(investment);
+
+  // Local optimisitic update
+  user.balance = Number(user.balance) - Number(amount);
+  user.plan = user.plan || [];
+  user.plan.push(investment);
   updateUserData(user);
-  apiLog('INVESTMENT_PURCHASED', investment);
+  apiLog('INVESTMENT_PURCHASED_LOCAL', investment);
+
+  // Send to backend for persistence
+  try {
+    const resp = await fetch(`https://wealt-render.onrender.com/transactions/${user._id}/subplan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        // match backend payload keys (subname/subamount/from/to/timestamp) or send whole object
+        subname: plan.name,
+        subamount: Number(amount),
+        from: user.from,
+        to: user.email,
+        timestamp: startDate,
+        investmentObject: investment // optional: send full object so backend can store exactly same shape
+      })
+    });
+
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      throw new Error(data.message || 'Server error');
+    }
+
+    apiLog('INVESTMENT_PURCHASED_SERVER', data);
+    if (data.success) {
+  console.log(data);
   
-  return { success: true, investment };
+    Swal.fire({ 
+      icon: 'success', 
+      title: 'Investment Activated!', 
+      html: `Plan purchase success!`,
+      confirmButtonText: 'OK' 
+    }).then(() => {
+      renderInvestmentPage ();
+    });
+  } 
+    return { success: true, investment };
+  } catch (err) {
+    console.error('API purchase error:', err);
+    apiLog('INVESTMENT_PURCHASE_FAILED', { error: err.message, investment });
+    // optionally rollback local change or mark as 'failed' locally
+    return { success: false, error: err.message };
+  }
 }
+
+
 
 // Calculate and add daily profits
 function processDailyProfits() {
@@ -233,7 +422,7 @@ function processDailyProfits() {
   let totalProfitAdded = 0;
   const now = new Date();
   
-  user.activeInvestments.forEach(investment => {
+  user.plan.forEach(investment => {
     if (investment.status !== 'active') return;
     
     const lastUpdate = new Date(investment.lastProfitUpdate);
@@ -269,9 +458,9 @@ function processDailyProfits() {
 }
 
 // Get active investments
-function getActiveInvestments() {
+function getPlan() {
   const user = getUserData();
-  return user.activeInvestments || [];
+  return user.plan || [];
 }
 
 // ==================== THEME & UI ====================
@@ -289,19 +478,24 @@ themeToggle.addEventListener('click', () => {
   localStorage.setItem('theme', isDark ? 'dark' : 'light');
   apiLog('THEME_CHANGED', { theme: isDark ? 'dark' : 'light' });
 });
-
-// Sidebar Toggle
+// Sidebar Elements
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebarToggle');
+const sidebarClose = document.getElementById('sidebarClose');
 
+// ✅ Collapse sidebar by default on page load
+sidebar.classList.add('collapsed');
+
+// Toggle sidebar open/close
 sidebarToggle.addEventListener('click', () => {
   sidebar.classList.toggle('collapsed');
 });
 
-const sidebarClose = document.getElementById('sidebarClose');
+// Close sidebar when clicking the close button
 sidebarClose.addEventListener('click', () => {
   sidebar.classList.add('collapsed');
 });
+
 
 // ==================== NAVIGATION ====================
 
@@ -321,7 +515,7 @@ navLinks.forEach(link => {
 });
 
 function loadPage(page) {
-  switch(page) {
+  switch (page) {
     case 'market':
       renderMarketPage();
       break;
@@ -331,6 +525,9 @@ function loadPage(page) {
     case 'live-stream':
       renderLiveStreamPage();
       break;
+       case 'trade':
+     renderTradePage();
+      break;
     case 'fund-account':
       renderFundAccountPage();
       break;
@@ -339,6 +536,9 @@ function loadPage(page) {
       break;
     case 'investment':
       renderInvestmentPage();
+      break;
+    case 'history':
+      renderHistoryPage();
       break;
     case 'withdrawal':
       renderWithdrawalPage();
@@ -353,7 +553,15 @@ function loadPage(page) {
       renderDashboardPage();
       break;
     case 'investment-plans':
-      renderInvestmentPlansPage();
+      renderInvestmentPage ();
+      break;
+
+       case 'tradehistory':
+      renderTradeHistoryPage();
+      break;
+
+        case 'copytradehistory':
+      renderCopyTradingHistory()
       break;
     case 'admin':
       renderAdminPage();
@@ -361,62 +569,73 @@ function loadPage(page) {
     default:
       renderMarketPage();
   }
+
+  // ✅ Keep sidebar collapsed after loading new page
+  if (sidebar) sidebar.classList.add('collapsed');
 }
+
 
 // ==================== STATIC DATA (Only for Master Traders) ====================
 
-const masterTraders = [
-  {
-    name: 'Ali G',
-    level: 'Guru',
-    rating: 4,
-    trades: 51,
-    commission: 30,
-    pnl: '+$89000.00',
-    profileId: '79697172',
-    accountLevel: 5,
-    followers: 89,
-    watchers: 231,
-    profitableTrade: 70
-  },
-  {
-    name: 'Sarah Chen',
-    level: 'Expert',
-    rating: 5,
-    trades: 128,
-    commission: 25,
-    pnl: '+$142500.00',
-    profileId: '84521963',
-    accountLevel: 7,
-    followers: 234,
-    watchers: 512,
-    profitableTrade: 85
-  },
-  {
-    name: 'Marcus Rivera',
-    level: 'Master',
-    rating: 4,
-    trades: 89,
-    commission: 28,
-    pnl: '+$98750.00',
-    profileId: '73296847',
-    accountLevel: 6,
-    followers: 156,
-    watchers: 387,
-    profitableTrade: 78
-  }
-];
+// const masterTraders = [
+//   {
+//     name: 'Ali G',
+//     level: 'Guru',
+//     rating: 4,
+//     trades: 51,
+//     commission: 30,
+//     pnl: '+$89000.00',
+//     profileId: '79697172',
+//     accountLevel: 5,
+//     followers: 89,
+//     watchers: 231,
+//     profitableTrade: 70
+//   },
+//   {
+//     name: 'Sarah Chen',
+//     level: 'Expert',
+//     rating: 5,
+//     trades: 128,
+//     commission: 25,
+//     pnl: '+$142500.00',
+//     profileId: '84521963',
+//     accountLevel: 7,
+//     followers: 234,
+//     watchers: 512,
+//     profitableTrade: 85
+//   },
+//   {
+//     name: 'Marcus Rivera',
+//     level: 'Master',
+//     rating: 4,
+//     trades: 89,
+//     commission: 28,
+//     pnl: '+$98750.00',
+//     profileId: '73296847',
+//     accountLevel: 6,
+//     type:"",
+//      history,
+//     trades,
+//     followers: 156,
+//     watchers: 387,
+//     profitableTrade: 78
+//   }
+// ];
 
 // ==================== PAGE RENDERERS ====================
-
 function renderDashboardPage() {
-  const user = getUserData();
+  const user = getUserData(); // however you retrieve user info
+
   const html = `
     <div style="margin-bottom: 1.5rem;">
       <h1 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">Dashboard</h1>
       <p class="text-muted">Welcome back, ${user.firstName} ${user.lastName}!</p>
     </div>
-    
+
+    <div class="card" style="padding: 0; margin-bottom: 1.5rem;">
+      <div id="tradingview-ticker-tape"></div>
+    </div>
+
     <div class="stats-grid">
       <div class="card stat-card">
         <div class="stat-label">Total Balance</div>
@@ -436,100 +655,703 @@ function renderDashboardPage() {
       </div>
     </div>
   `;
-  
+
+  const content = document.getElementById('content');
   content.innerHTML = html;
+
+  // ✅ Initialize TradingView Ticker AFTER HTML loads
+  loadTickerTapeWidget();
 }
 
-function renderInvestmentPlansPage() {
-  const user = getUserData();
-  const plans = getInvestmentPlans();
-  
-  // Process daily profits on page load
-  processDailyProfits();
-  
-  const plansHTML = plans.map(plan => {
-    const totalReturn = plan.dailyProfitRate * plan.duration * 100;
-    return `
-      <div class="card" style="padding: 1.5rem;">
-        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-              <div style="width: 12px; height: 12px; border-radius: 50%; background-color: ${plan.color};"></div>
-              <h3 style="font-size: 1.25rem; font-weight: 600;">${plan.name}</h3>
+function loadTickerTapeWidget() {
+  const container = document.getElementById('tradingview-ticker-tape');
+  if (!container) return console.warn('Ticker tape container not found');
+
+  container.innerHTML = '';
+
+  const script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js';
+  script.async = true;
+
+  const config = {
+    symbols: [
+      { proName: "FOREXCOM:SPXUSD", title: "S&P 500 Index" },
+      { proName: "FOREXCOM:NSXUSD", title: "US 100 Cash CFD" },
+      { proName: "FX_IDC:EURUSD", title: "EUR to USD" },
+      { proName: "NASDAQ:TSLA", title: "Tesla" },
+      { proName: "NASDAQ:NVDA", title: "NVIDIA" },
+      { proName: "NASDAQ:AMZN", title: "Amazon" },
+      { proName: "NASDAQ:META", title: "Meta" }
+    ],
+    colorTheme: document.documentElement.classList.contains('dark') ? "dark" : "light",
+    locale: "en",
+    isTransparent: true,
+    showSymbolLogo: true,
+    displayMode: "adaptive"
+  };
+
+  script.innerHTML = JSON.stringify(config);
+  container.appendChild(script);
+}
+ function renderTradePage() {
+  const content = document.getElementById('content');
+  const user = getUserData(); // however you retrieve user info
+  console.log(user);
+
+  content.innerHTML = `
+    <div class="trade-page">
+     <div class="trade-intro">
+  <h3>Smart Trading Dashboard</h3>
+  <p>
+    Trade crypto, forex, and stocks with real-time insights. 
+    Use the charts below to analyze market movements before placing your trades.
+  </p>
+</div>
+
+
+      <!-- Top TradingView Chart -->
+      <div id="tradingview_top" class="tradingview-widget"></div>
+
+      <!-- Trading Card -->
+      <div class="trade-container">
+        <div class="trading-card">
+          <div class="header">
+            <div class="balance">Balance: $<span id="balance2">${user.balance.toFixed(2)}</span></div>
+            <div class="live">LIVE TRADING</div>
+          </div>
+
+          <form id="tradeForm">
+            <label>Asset Type</label>
+            <select id="assetType" required>
+              <option value="">Select Asset Type</option>
+              <option value="crypto">Crypto</option>
+              <option value="forex">Forex</option>
+              <option value="stock">Stock</option>
+            </select>
+
+            <label>Asset</label>
+            <select id="assetName" required>
+              <option value="">Select Asset</option>
+            </select>
+
+            <label>Leverage</label>
+            <div class="leverage-buttons" id="leverageButtons"></div>
+            <input type="range" id="leverageRange" min="1" max="100" step="1" value="1">
+
+            <label>Duration</label>
+            <select id="duration" required>
+              <option value="">Select Duration</option>
+              <option value="1">1 Minute</option>
+              <option value="2">2 Minutes</option>
+              <option value="5">5 Minutes</option>
+              <option value="15">15 Minutes</option>
+              <option value="60">1 Hour</option>
+              <option value="1440">1 Day</option>
+            </select>
+
+            <label>Amount</label>
+            <input type="number" id="amount" placeholder="Enter trade amount" required>
+
+            <div class="tp-sl">
+              <div>
+                <label>Take Profit</label>
+                <input type="number" id="takeProfit" required>
+              </div>
+              <div>
+                <label>Stop Loss</label>
+                <input type="number" id="stopLoss" required>
+              </div>
             </div>
-            <p class="text-muted small">${plan.description}</p>
-          </div>
-        </div>
-        
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem; padding: 1rem; background-color: hsl(var(--muted)); border-radius: 0.375rem;">
-          <div>
-            <div class="text-muted small">Min Investment</div>
-            <div style="font-weight: 600; margin-top: 0.25rem;">$${plan.minInvestment.toLocaleString()}</div>
-          </div>
-          <div>
-            <div class="text-muted small">Max Investment</div>
-            <div style="font-weight: 600; margin-top: 0.25rem;">$${plan.maxInvestment.toLocaleString()}</div>
-          </div>
-          <div>
-            <div class="text-muted small">Daily Profit</div>
-            <div style="font-weight: 600; color: hsl(var(--chart-2)); margin-top: 0.25rem;">${(plan.dailyProfitRate * 100).toFixed(2)}%</div>
-          </div>
-          <div>
-            <div class="text-muted small">Total Return</div>
-            <div style="font-weight: 600; color: hsl(var(--chart-2)); margin-top: 0.25rem;">${totalReturn.toFixed(0)}%</div>
-          </div>
-          <div>
-            <div class="text-muted small">Duration</div>
-            <div style="font-weight: 600; margin-top: 0.25rem;">${plan.duration} Days</div>
-          </div>
-          <div>
-            <div class="text-muted small">Your Balance</div>
-            <div style="font-weight: 600; margin-top: 0.25rem;">$${user.balance.toFixed(2)}</div>
-          </div>
-        </div>
-        
-        <div style="display: flex; gap: 0.75rem;">
-          <input type="number" id="amount-${plan.id}" class="input" placeholder="Enter amount" min="${plan.minInvestment}" max="${plan.maxInvestment}" style="flex: 1;">
-          <button class="btn btn-primary" onclick="handlePurchasePlan('${plan.id}')" style="white-space: nowrap;">Invest Now</button>
+
+            <div class="actions">
+              <button type="button" id="buyBtn" class="buy" disabled>Buy</button>
+              <button type="button" id="sellBtn" class="sell" disabled>Sell</button>
+            </div>
+             <!-- History Button -->
+        <div class="history-section">
+          <button id="viewHistoryBtn" class="history-btn">
+            <i class="fas fa-history"></i> View Trade History
+          </button>
         </div>
       </div>
-    `;
-  }).join('');
-  
-  const html = `
-    <div style="margin-bottom: 1.5rem;">
-      <h1 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">Investment Plans 📈</h1>
-      <p class="text-muted">Choose a plan and start earning daily profits for 90 days</p>
-    </div>
-    
-    <div class="stats-grid" style="margin-bottom: 1.5rem;">
-      <div class="card stat-card">
-        <div class="stat-label">Current Balance</div>
-        <div class="stat-value">$${user.balance.toFixed(2)}</div>
+          </form>
+        </div>
       </div>
-      <div class="card stat-card">
-        <div class="stat-label">Active Investments</div>
-        <div class="stat-value">${user.activeInvestments.filter(inv => inv.status === 'active').length}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">Total Invested</div>
-        <div class="stat-value">$${user.activeInvestments.filter(inv => inv.status === 'active').reduce((sum, inv) => sum + inv.amount, 0).toFixed(2)}</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">Total Earnings</div>
-        <div class="stat-value" style="color: hsl(var(--chart-2));">$${user.activeInvestments.reduce((sum, inv) => sum + inv.totalProfit, 0).toFixed(2)}</div>
-      </div>
-    </div>
-    
-    <div style="display: grid; gap: 1rem;">
-      ${plansHTML}
+
+      <!-- Bottom TradingView Chart -->
+      <div id="tradingview_bottom" class="tradingview-widget"></div>
+
+     
     </div>
   `;
-  
-  content.innerHTML = html;
+
+  // ✅ Initialize TradingView
+  function initializeTradingView(symbol = "BTCUSDT") {
+    const topWidget = document.getElementById("tradingview_top");
+    const bottomWidget = document.getElementById("tradingview_bottom");
+    topWidget.innerHTML = "";
+    bottomWidget.innerHTML = "";
+
+    new TradingView.widget({
+      autosize: true,
+      symbol: symbol,
+      interval: "30",
+      timezone: "Etc/UTC",
+      theme: "dark",
+      style: "1",
+      locale: "en",
+      toolbar_bg: "#f1f3f6",
+      enable_publishing: false,
+      container_id: "tradingview_top"
+    });
+
+    new TradingView.widget({
+      autosize: true,
+      symbol: symbol,
+      interval: "60",
+      timezone: "Etc/UTC",
+      theme: "dark",
+      style: "1",
+      locale: "en",
+      hide_top_toolbar: false,
+      enable_publishing: false,
+      container_id: "tradingview_bottom"
+    });
+  }
+
+  // Load initial charts
+  initializeTradingView();
+
+  // ------------------------------
+  // Initialize Assets & Leverage
+  // ------------------------------
+  const assets = {
+    crypto: ["BTC/USDT","ETH/USDT","XRP/USDT","ADA/USDT","DOGE/USDT","SOL/USDT","DOT/USDT","LTC/USDT","BNB/USDT","MATIC/USDT"],
+    forex: ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD","USD/CHF","NZD/USD","EUR/GBP","EUR/JPY","GBP/JPY"],
+    stock: ["AAPL","TSLA","GOOGL","AMZN","MSFT","NFLX","META","NVDA","BABA","AMD"]
+  };
+
+  const assetTypeEl = document.getElementById("assetType");
+  const assetNameEl = document.getElementById("assetName");
+  const leverageButtonsEl = document.getElementById("leverageButtons");
+  const leverageRangeEl = document.getElementById("leverageRange");
+  const form = document.getElementById("tradeForm");
+  const buyBtn = document.getElementById("buyBtn");
+  const sellBtn = document.getElementById("sellBtn");
+
+  // Populate leverage buttons
+  const LEVERAGES = [...Array(10).keys()].map(i => i + 1).concat([20,30,40,50,60,70,80,90,100]);
+  LEVERAGES.forEach(lv => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = `${lv}x`;
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".leverage-buttons button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      leverageRangeEl.value = lv;
+    });
+    leverageButtonsEl.appendChild(btn);
+  });
+
+  leverageRangeEl.addEventListener("input", e => {
+    document.querySelectorAll(".leverage-buttons button").forEach(b => b.classList.remove("active"));
+    const closest = LEVERAGES.reduce((prev, curr) => Math.abs(curr - e.target.value) < Math.abs(prev - e.target.value) ? curr : prev);
+    const activeBtn = Array.from(leverageButtonsEl.children).find(b => b.textContent === `${closest}x`);
+    if (activeBtn) activeBtn.classList.add("active");
+  });
+
+  // Populate assets dropdown
+  assetTypeEl.addEventListener("change", () => {
+    assetNameEl.innerHTML = '<option value="">Select Asset</option>';
+    if (assets[assetTypeEl.value]) {
+      assets[assetTypeEl.value].forEach(a => {
+        const option = document.createElement("option");
+        option.value = a;
+        option.textContent = a;
+        assetNameEl.appendChild(option);
+      });
+    }
+  });
+
+  // ✅ Auto-update chart when asset changes
+  assetNameEl.addEventListener("change", () => {
+    const asset = assetNameEl.value;
+    if (!asset) return;
+    const formatted = asset.replace("/", ""); // e.g. BTC/USDT → BTCUSDT
+    initializeTradingView(formatted);
+  });
+
+  // Enable buttons when form is filled
+  form.addEventListener("input", () => {
+    const allFilled = [...form.elements].every(el => {
+      if (el.tagName === "SELECT" || el.tagName === "INPUT") return el.value.trim() !== "";
+      return true;
+    });
+    buyBtn.disabled = !allFilled;
+    sellBtn.disabled = !allFilled;
+  });
+
+  // ------------------------------
+  // Backend Trade Functions
+  // ------------------------------
+  const email = user.email;
+
+  async function getPartUserData() {
+    try {
+      const data = await $.ajax({
+        type: "GET",
+        url: `https://wealt-render.onrender.com/users/${email}`,
+        dataType: "json",
+        timeout: 30000
+      });
+      $("#balance2").text(data.data.balance);
+      return data.data;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function commandTrade(tradeId, state) {
+    try {
+      const res = await $.ajax({
+        type: "PUT",
+        url: `https://wealt-render.onrender.com/transactions/trades/${tradeId}/commandTrade`,
+        data: JSON.stringify({ command: state }),
+        contentType: "application/json",
+        dataType: "json"
+      });
+      return res;
+    } catch (err) {
+      console.error(err);
+      throw err;
+    }
+  }
+
+  async function depositFnc(trade) {
+    try {
+      const user_Id = user._id;
+      const data = await $.ajax({
+        type: "POST",
+        url: `https://wealt-render.onrender.com/transactions/${user_Id}/userdeposit`,
+        dataType: "json",
+        data: trade,
+        timeout: 30000
+      });
+      const tradeId = data.tradeId;
+      const state = "true";
+      await commandTrade(tradeId, state);
+      Swal.fire({
+        icon: 'success',
+        title: `Trade Placed!`,
+        text: `${trade.assetName} | $${trade.amount} @ ${trade.leverage}`,
+        confirmButtonColor: '#f0b90b'
+      });
+      setTimeout(() => renderTradeHistoryPage(), 2000);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to place trade");
+    }
+  }
+
+  async function placeTrade(action) {
+    const trade = {
+      assetType: assetTypeEl.value,
+      assetName: assetNameEl.value,
+      leverage: leverageRangeEl.value + "x",
+      duration: document.getElementById("duration").value,
+      amount: document.getElementById("amount").value,
+      takeProfit: document.getElementById("takeProfit").value,
+      stopLoss: document.getElementById("stopLoss").value,
+      action
+    };
+    await depositFnc(trade);
+  }
+
+  buyBtn.addEventListener("click", () => placeTrade("BUY"));
+  sellBtn.addEventListener("click", () => placeTrade("SELL"));
+  document.getElementById("viewHistoryBtn").addEventListener("click", () => renderTradeHistoryPage());
+
+  // Fetch latest user balance
+  getPartUserData();
 }
 
-function handlePurchasePlan(planId) {
+
+function renderTradeHistoryPage() {
+  const content = document.getElementById('content');
+
+  content.innerHTML = `
+    <div class="trade-history-page">
+<!-- Top Section: Write-up + Widget -->
+<div class="trade-history-top">
+  <div class="writeup">
+    <h1>Trade History Overview 📊</h1>
+    <p>
+      Review all your past trades with detailed performance metrics.
+      Track profits, losses, leverage used, and trade durations to improve your trading strategy.
+    </p>
+    <button id="historyRefreshBtn" class="btn btn-primary">Refresh Trades</button>
+  </div>
+  
+  <div class="widget-placeholder">
+    <h3>Portfolio Summary</h3>
+    <p id="tradeSummaryWidget">Loading...</p>
+  </div>
+</div>
+
+      </div>
+
+      <!-- Loader -->
+      <div id="loader" class="loader" style="display:none; text-align:center; margin:1rem 0;">
+        <div class="spinner" style="border:4px solid #333; border-top:4px solid #f0b90b; border-radius:50%; width:30px; height:30px; animation:spin 1s linear infinite; margin:auto;"></div>
+        <p style="color:#aaa; margin-top:0.5rem;">Loading...</p>
+      </div>
+
+      <!-- Trade Table -->
+      <div class="table-container" style="overflow-x:auto; margin-bottom:2rem;">
+        <table class="trade-table ">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th>Amount</th>
+              <th>Leverage</th>
+              <th>Duration</th>
+              <th>Countdown</th>
+              <th>Profit / Loss</th>
+              <th>Action</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tradeTable"></tbody>
+        </table>
+      </div>
+
+      <!-- Analytics / Graphs -->
+      <div class="trade-analytics" style="margin-top:2rem;">
+        <div class="trade-history-top">
+  <div class="writeup">
+   
+
+    </div>
+    </div>
+       
+      </div>
+    </div>
+
+    <style>
+      @keyframes spin { 100% { transform: rotate(360deg); } }
+      .trade-table.dark-theme { width:100%; border-collapse:collapse; background:#1e1e2f; color:#ddd; border-radius:0.5rem; overflow:hidden; }
+      .trade-table.dark-theme thead { background:#2c2c3c; color:#f0b90b; }
+      .trade-table.dark-theme tbody tr:nth-child(even) { background:#2a2a3a; }
+      .trade-table.dark-theme tbody tr:hover { background:#33334d; }
+      .trade-table td, .trade-table th { padding:0.75rem; }
+      .won { color:#4caf50; font-weight:600; }
+      .lost { color:#f44336; font-weight:600; }
+    </style>
+  `;
+
+  const BASE_URL = "https://wealt-render.onrender.com";
+  const tradeTable = document.getElementById("tradeTable");
+  const loader = document.getElementById("loader");
+  const summaryWidget = document.getElementById("tradeSummaryWidget");
+  const historyRefreshBtn = document.getElementById("historyRefreshBtn");
+
+  const timers = new Map();
+
+//   // ------------------ Chart.js instances ------------------
+//   let profitLossChartInstance = null;
+//   let tradesByAssetChartInstance = null;
+//   let leverageUsageChartInstance = null;
+// const chartOptions = (textColor) => ({
+//   responsive: true,
+//   plugins: {
+//     legend: {
+//       display: true,
+//       labels: {
+//         color: `hsl(${textColor})`, // text color from theme
+//         font: { size: 13, family: 'Inter, sans-serif', weight: '600' }
+//       }
+//     },
+//     tooltip: {
+//       bodyColor: `hsl(${textColor})`,
+//       titleColor: `hsl(${textColor})`,
+//       backgroundColor: 'rgba(0,0,0,0.7)',
+//       titleFont: { weight: '700' }
+//     }
+//   },
+//   scales: {
+//     x: { ticks: { color: `hsl(${textColor})` }, grid: { color: 'rgba(255,255,255,0.1)' } },
+//     y: { ticks: { color: `hsl(${textColor})` }, grid: { color: 'rgba(255,255,255,0.1)' } },
+//   }
+// });
+
+// function generateCharts(trades) {
+//   // Extract colors from CSS variables
+//   const styles = getComputedStyle(document.documentElement);
+//   const colors = {
+//     text: styles.getPropertyValue('--foreground').trim(),
+//     grid: styles.getPropertyValue('--border').trim(),
+//     profit: styles.getPropertyValue('--chart-1').trim(),
+//     asset: styles.getPropertyValue('--chart-2').trim(),
+//     leverage: styles.getPropertyValue('--chart-3').trim(),
+//     leverage2: styles.getPropertyValue('--chart-4').trim(),
+//     background: styles.getPropertyValue('--card').trim(),
+//   };
+
+//   const labels = trades.map(t => t.assetName ?? "Unknown");
+//   const profitData = trades.map(t => Number(t.profit || 0));
+
+//   const assetsCount = {};
+//   const leverageCount = {};
+//   trades.forEach(t => {
+//     assetsCount[t.assetName] = (assetsCount[t.assetName] || 0) + 1;
+//     leverageCount[t.leverage] = (leverageCount[t.leverage] || 0) + 1;
+//   });
+
+//   // Destroy previous charts
+//   if (window.profitLossChartInstance) window.profitLossChartInstance.destroy();
+//   if (window.tradesByAssetChartInstance) window.tradesByAssetChartInstance.destroy();
+//   if (window.leverageUsageChartInstance) window.leverageUsageChartInstance.destroy();
+
+//   // Profit/Loss Line Chart
+//   const ctxProfit = document.getElementById('profitLossChart').getContext('2d');
+//   window.profitLossChartInstance = new Chart(ctxProfit, {
+//     type: 'line',
+//     data: {
+//       labels,
+//       datasets: [{
+//         label: 'Profit / Loss',
+//         data: profitData,
+//         borderColor: `hsl(${colors.profit})`,
+//         backgroundColor: `hsla(${colors.profit},0.2)`,
+//         tension: 0.3,
+//         fill: true,
+//         pointRadius: 3,
+//         pointBackgroundColor: `hsl(${colors.profit})`,
+//       }]
+//     },
+//     options: {
+//       responsive: true,
+//       plugins: {
+//         legend: { labels: { color: `hsl(${colors.text})` } },
+//         tooltip: { mode: 'index', intersect: false }
+//       },
+//       scales: {
+//         x: { ticks: { color: `hsl(${colors.text})` }, grid: { color: `hsla(${colors.grid},0.2)` } },
+//         y: { ticks: { color: `hsl(${colors.text})` }, grid: { color: `hsla(${colors.grid},0.2)` } },
+//       }
+//     }
+//   });
+
+//   // Trades by Asset Pie Chart
+//   const ctxAsset = document.getElementById('tradesByAssetChart').getContext('2d');
+//   window.tradesByAssetChartInstance = new Chart(ctxAsset, {
+//     type: 'pie',
+//     data: {
+//       labels: Object.keys(assetsCount),
+//       datasets: [{
+//         label: 'Trades by Asset',
+//         data: Object.values(assetsCount),
+//         backgroundColor: Object.keys(assetsCount).map((_, i) => `hsl(${(i*60)%360}, 70%, 50%)`),
+//         borderColor: `hsl(${colors.background})`,
+//         borderWidth: 1
+//       }]
+//     },
+//     options: {
+//       responsive: true,
+//       plugins: {
+//         legend: { labels: { color: `hsl(${colors.text})` } },
+//         tooltip: { mode: 'nearest' }
+//       }
+//     }
+//   });
+
+//   // Leverage Usage Bar Chart
+//   const ctxLeverage = document.getElementById('leverageUsageChart').getContext('2d');
+//   window.leverageUsageChartInstance = new Chart(ctxLeverage, {
+//     type: 'bar',
+//     data: {
+//       labels: Object.keys(leverageCount),
+//       datasets: [{
+//         label: 'Leverage Usage',
+//         data: Object.values(leverageCount),
+//         backgroundColor: Object.keys(leverageCount).map((_, i) => `hsl(${i%2 === 0 ? colors.leverage : colors.leverage2})`)
+//       }]
+//     },
+//     options: {
+//       responsive: true,
+//       plugins: {
+//         legend: { display: false },
+//         tooltip: { mode: 'nearest' }
+//       },
+//       scales: {
+//         y: { beginAtZero: true, ticks: { color: `hsl(${colors.text})` }, grid: { color: `hsla(${colors.grid},0.2)` } },
+//         x: { ticks: { color: `hsl(${colors.text})` }, grid: { color: `hsla(${colors.grid},0.2)` } }
+//       }
+//     }
+//   });
+// }
+
+
+  // ------------------ Helpers ------------------
+  function parseDuration(duration) {
+    if (!duration) return 0;
+    if (typeof duration === "number") return duration*60;
+    if (!isNaN(duration)) return Number(duration)*60;
+    const match = /^(\d+)([smhd])?$/i.exec(String(duration).trim());
+    if (!match) return 0;
+    const value = parseInt(match[1],10);
+    const unit = (match[2]||"m").toLowerCase();
+    switch(unit){
+      case "s": return value;
+      case "m": return value*60;
+      case "h": return value*3600;
+      case "d": return value*86400;
+      default: return 0;
+    }
+  }
+
+  function formatTime(totalSeconds) {
+    const sec = Math.max(0, Math.floor(totalSeconds));
+    const h = Math.floor(sec/3600);
+    const m = Math.floor((sec%3600)/60);
+    const s = sec%60;
+    const pad = n=>String(n).padStart(2,"0");
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+
+  async function fetchTradeFromBackend(tradeId){
+    try{
+      const response = await $.ajax({type:"GET", url:`${BASE_URL}/transactions/trades/${tradeId}`, dataType:"json", timeout:30000});
+      if(response && response.success && response.trade) return response.trade;
+      console.error("No trade object returned:", response); return null
+    } catch(err){ console.error("Error fetching trade:", err); return null; }
+  }
+
+  function updateResultUI(trade, profitLossEl, actionEl, statusEl){
+    if(!trade){
+      profitLossEl.textContent="--"; actionEl.textContent="Error"; statusEl.textContent="FAILED"; return;
+    }
+    const profit=Number(trade.profit||0);
+    const amount=Number(trade.tradeAmount||0);
+    if(profit>0){
+      profitLossEl.textContent=`+$${profit}`; profitLossEl.className="won";
+      actionEl.textContent="Won"; actionEl.className="won";
+    } else{
+      profitLossEl.textContent=`-$${amount}`; profitLossEl.className="lost";
+      actionEl.textContent="Lost"; actionEl.className="lost";
+    }
+    statusEl.textContent="COMPLETED";
+  }
+
+  function renderTrades(trades){
+    timers.forEach(t=>clearInterval(t)); timers.clear();
+    tradeTable.innerHTML="";
+
+    trades.forEach(trade=>{
+      const id=trade._id;
+      const row=document.createElement("tr");
+      row.innerHTML=`
+        <td>${trade.assetName??"-"}</td>
+        <td>$${Number(trade.tradeAmount||0)}</td>
+        <td>${trade.leverage??"-"}</td>
+        <td>${trade.duration??"-"}</td>
+        <td id="countdown-${id}">--:--:--</td>
+        <td id="profitLoss-${id}">-</td>
+        <td id="action-${id}">${trade.command==="true"?"Running":"Pending"}</td>
+        <td id="status-${id}">${trade.status??"-"}</td>
+      `;
+      tradeTable.appendChild(row);
+
+      const countdownEl=document.getElementById(`countdown-${id}`);
+      const profitLossEl=document.getElementById(`profitLoss-${id}`);
+      const actionEl=document.getElementById(`action-${id}`);
+      const statusEl=document.getElementById(`status-${id}`);
+
+      if((trade.status||"").toUpperCase()==="COMPLETED"){
+        countdownEl.textContent="00:00:00";
+        updateResultUI(trade,profitLossEl,actionEl,statusEl);
+        return;
+      }
+
+      const statusUpper=(trade.status||"").toUpperCase();
+      const isActive=statusUpper==="ACTIVE"||statusUpper==="RUNNING"||trade.command==="true";
+      if(!isActive){ countdownEl.textContent="--:--:--"; return; }
+
+      const startMs=trade.startTime?Date.parse(trade.startTime):NaN;
+      if(!startMs||Number.isNaN(startMs)){ countdownEl.textContent="Waiting…"; statusEl.textContent=trade.status||"PENDING"; return; }
+
+      const durSec=parseDuration(trade.duration);
+      if(!durSec){ countdownEl.textContent="—"; return; }
+
+      const endMs=startMs+durSec*1000;
+
+      if(timers.has(id)){ clearInterval(timers.get(id)); timers.delete(id); }
+
+      const tick=async ()=>{
+        const now=Date.now();
+        const left=Math.max(0,Math.floor((endMs-now)/1000));
+        countdownEl.textContent=formatTime(left);
+        actionEl.textContent=trade.command==="true"?"Running":actionEl.textContent;
+        statusEl.textContent=statusUpper||"ACTIVE";
+
+        if(left<=0){
+          clearInterval(timers.get(id)); timers.delete(id);
+          countdownEl.textContent="00:00:00"; statusEl.textContent="Fetching Result...";
+          try{
+            loader.style.display="flex";
+            const refreshed=await fetchTradeFromBackend(id);
+            if(refreshed){ updateResultUI(refreshed,profitLossEl,actionEl,statusEl); }
+            else{ statusEl.textContent="Error fetching result"; }
+          } catch(err){ console.error(err); statusEl.textContent="Error fetching result"; }
+          finally{ loader.style.display="none"; }
+        }
+      };
+
+      tick(); timers.set(id,setInterval(tick,1000));
+    });
+
+    // Update summary widget
+    const totalTrades=trades.length;
+    const totalProfit=trades.reduce((sum,t)=>sum+Number(t.profit||0),0);
+    summaryWidget.textContent=`Total Trades: ${totalTrades} | Total Profit/Loss: $${totalProfit.toFixed(2)}`;
+
+    // Generate charts
+    // generateCharts(trades);
+  }
+
+  async function loadTrades(){
+    try{
+      loader.style.display="flex";
+      const parsedUser=localStorage.getItem("user");
+      if(!parsedUser){ console.warn("No user in localStorage"); loader.style.display="none"; return []; }
+
+      const userFromLS=JSON.parse(parsedUser);
+      const email=userFromLS.email;
+
+      const response=await $.ajax({ type:"GET", url:`${BASE_URL}/users/${email}`, dataType:"json", timeout:30000 });
+      if(!response||!response.data) throw new Error("Invalid response from server");
+
+      localStorage.setItem("user",JSON.stringify(response.data));
+      const trades=response.data.planHistory||response.data.trades||[];
+      renderTrades(trades);
+      return trades;
+    } catch(error){
+      console.error("Error loading trades:",error);
+      Swal.fire({ icon:"error", title:"Failed to load trades", text:"Please check your connection or try again later.", confirmButtonColor:"#f0b90b" });
+      return [];
+    } finally{ loader.style.display="none"; }
+  }
+
+  // Initial load
+  loadTrades();
+  setInterval(loadTrades,60*1000);
+
+  // Refresh button
+  historyRefreshBtn.addEventListener("click", ()=>{ loadTrades(); });
+}
+
+async function handlePurchasePlan(planId) {
   const amountInput = document.getElementById(`amount-${planId}`);
   const amount = parseFloat(amountInput.value);
   
@@ -538,32 +1360,32 @@ function handlePurchasePlan(planId) {
     return;
   }
   
-  const result = purchaseInvestmentPlan(planId, amount);
+  const result = await purchaseInvestmentPlan(planId, amount);
   
-  if (result.success) {
-    Swal.fire({ 
-      icon: 'success', 
-      title: 'Investment Activated!', 
-      html: `<strong>${result.investment.planName}</strong><br>Amount: $${amount.toFixed(2)}<br>Daily Profit: ${(result.investment.dailyProfitRate * 100).toFixed(2)}%<br>Duration: ${result.investment.duration} days<br><br>Your investment is now active and earning daily profits!`,
-      confirmButtonText: 'OK' 
-    }).then(() => {
-      renderInvestmentPlansPage();
-    });
-  } else {
-    Swal.fire({ icon: 'error', title: 'Investment Failed', text: result.error, confirmButtonText: 'OK' });
-  }
+  // if (result.success) {
+  //   Swal.fire({ 
+  //     icon: 'success', 
+  //     title: 'Investment Activated!', 
+  //     html: `<strong>${result.investment.planName}</strong><br>Amount: $${amount.toFixed(2)}<br>Daily Profit: ${(result.investment.dailyProfitRate * 100).toFixed(2)}%<br>Duration: ${result.investment.duration} days<br><br>Your investment is now active and earning daily profits!`,
+  //     confirmButtonText: 'OK' 
+  //   }).then(() => {
+  //     renderInvestmentPage ();
+  //   });
+  // } else {
+  //   Swal.fire({ icon: 'error', title: 'Investment Failed', text: result.error, confirmButtonText: 'OK' });
+  // }
 }
 
 function renderAdminPage() {
   const user = getUserData();
   const plans = getInvestmentPlans();
-  const activeInvestments = user.activeInvestments || [];
+  const plan = user.plan || [];
   
   // Calculate statistics
   const totalUsers = 1; // We only have one user in localStorage
-  const totalInvested = activeInvestments.filter(inv => inv.status === 'active').reduce((sum, inv) => sum + inv.amount, 0);
-  const totalProfitPaid = activeInvestments.reduce((sum, inv) => sum + inv.totalProfit, 0);
-  const activeInvestmentCount = activeInvestments.filter(inv => inv.status === 'active').length;
+  const totalInvested = plan.filter(inv => inv.status === 'active').reduce((sum, inv) => sum + inv.amount, 0);
+  const totalProfitPaid = plan.reduce((sum, inv) => sum + inv.totalProfit, 0);
+  const activeInvestmentCount = plan.filter(inv => inv.status === 'active').length;
   
   const plansTableHTML = plans.map((plan, index) => `
     <tr>
@@ -583,7 +1405,7 @@ function renderAdminPage() {
     </tr>
   `).join('');
   
-  const investmentsTableHTML = activeInvestments.length > 0 ? activeInvestments.map((inv, index) => {
+  const investmentsTableHTML = plan.length > 0 ? plan.map((inv, index) => {
     const daysRemaining = inv.duration - inv.daysElapsed;
     const progress = (inv.daysElapsed / inv.duration) * 100;
     return `
@@ -886,67 +1708,180 @@ function openQuickTrade(type) {
   openTradeModal(symbolName, type.toUpperCase(), price);
 }
 
-function renderSocialTradingPage() {
+async function fetchTrader() {
+  try {
+    const response = await fetch('https://wealt-render.onrender.com/auth/trader/fetch-trader');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const traders = await response.json();
+    console.log("Fetched traders:", traders);
+    return traders;
+  } catch (error) {
+    console.error('Error fetching traders:', error);
+    return []; // Return empty array if fetch fails
+  }
+}
+
+async function renderSocialTradingPage() {
   const user = getUserData();
   const displayName = `${user.firstName}${user.lastName}`.toLowerCase();
-  
+
+  // 🔹 Fetch traders dynamically
+  const masterTraders = await fetchTrader();
+
+  // If no traders fetched, show fallback
+  if (!masterTraders.length) {
+    content.innerHTML = `
+      <div class="hero-banner">
+        <h1 class="hero-title">Welcome, <span class="text-primary">${displayName}</span>!</h1>
+        <p style="font-size: 1.125rem;">Social Trading 🔥</p>
+      </div>
+      <div class="card" style="padding: 1rem; text-align: center;">
+        <p>No master traders available at the moment. Please check back later.</p>
+      </div>
+      <!-- Place this button somewhere on your dashboard -->
+
+
+    `;
+    return;
+
+    // JS: Event listener to load Copy Trading History
+document.getElementById("loadCopyHistoryBtn").addEventListener("click", () => {
+  renderCopyTradingHistory();
+});
+  }
+
   const html = `
     <div class="hero-banner">
       <h1 class="hero-title">Welcome, <span class="text-primary">${displayName}</span>!</h1>
       <p style="font-size: 1.125rem;">Social Trading 🔥</p>
+      
     </div>
-    
+
     ${user.copyTradingActive && user.copyTradingActive.length > 0 ? `
       <div class="card" style="margin-bottom: 1.5rem; background-color: hsl(var(--primary) / 0.1); border-color: hsl(var(--primary));">
         <h3 style="font-weight: 600; margin-bottom: 0.5rem;">Active Copy Trading</h3>
         <p class="text-muted small">You are currently copying ${user.copyTradingActive.length} trader(s)</p>
       </div>
     ` : ''}
-    
+<button id="loadCopyHistoryBtn" class="btn btn-primary">
+ History <i class="fas fa-arrow-right" style="color:#fff;"></i>
+
+</button>
+
     <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem;">Master Traders</h2>
     <div class="card-grid">
       ${masterTraders.map(trader => `
         <div class="card trader-card">
           <div class="trader-header">
-            <div class="trader-avatar" style="background-color: hsl(var(--primary) / 0.2); display: flex; align-items: center; justify-content: center; font-weight: 600; color: hsl(var(--primary))">
-              ${trader.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+            <div class="trader-avatar" 
+                 style="background-color: hsl(var(--primary) / 0.2); display: flex; align-items: center; justify-content: center; font-weight: 600; color: hsl(var(--primary))">
+
+          <img src=${trader.photo} style="width:50px; height:50px; border-radius:50%;"/>
             </div>
             <div class="trader-info">
-              <h3>${trader.name}</h3>
-              <span class="badge">${trader.level}</span>
+              <h3>${trader.name || 'Unnamed Trader'}</h3>
+              <span class="badge">${trader.level || 'Standard'}</span>
             </div>
           </div>
+
           <div class="trader-rating">
             ${Array(5).fill(0).map((_, i) => `
-              <svg class="star ${i < trader.rating ? '' : 'empty'}" viewBox="0 0 24 24">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              <svg class="star ${i < (trader.rating || 0) ? '' : 'empty'}" viewBox="0 0 24 24">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 
+                                 18.18 21.02 12 17.77 5.82 21.02 
+                                 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
             `).join('')}
           </div>
+
           <div class="trader-stats">
             <div>
               <div class="stat-label">Number of trades</div>
-              <div class="stat-value">${trader.trades}</div>
+              <div class="stat-value">${trader.trades || 0}</div>
             </div>
             <div>
               <div class="stat-label">Commission</div>
-              <div class="stat-value">${trader.commission}%</div>
+              <div class="stat-value">${trader.commission || 0}%</div>
             </div>
           </div>
+
           <div class="trader-pnl">
             <span style="font-weight: 600;">P&L</span>
-            <span class="pnl-value">${trader.pnl}</span>
+            <span class="pnl-value">${trader.pnl || '₦0'}</span>
           </div>
-          <button class="btn btn-primary btn-block" onclick='openCopyTradeModal(${JSON.stringify(trader).replace(/'/g, "&apos;")})'>
-            Mirror Trade
-          </button>
+
+          <button 
+  class="btn btn-primary btn-block"
+  data-name="${trader.name || 'Unknown'}"
+  data-level="${trader.level || 'N/A'}"
+  data-rating="${trader.rating || '0'}"
+  data-photo="${trader.photo || ' '}"
+  data-trades='${JSON.stringify(trader.trades || [])}'
+  data-commission="${trader.commission || '0%'}"
+  data-pnl="${trader.pnl || '₦0'}"
+  data-profileid="${trader.profileId || 'N/A'}"
+  data-accountlevel="${trader.accountLevel || 'Basic'}"
+  data-type="${trader.type || 'N/A'}"
+  data-history='${JSON.stringify(trader.history || [])}'
+  data-followers="${trader.followers || '0'}"
+  data-watchers="${trader.watchers || '0'}"
+  data-profitabletrade="${trader.profitableTrade || '0%'}"
+  onclick="openCopyTradeModal(this)">
+  Mirror Trade
+</button>
+
         </div>
-      `).join('')}
+      `
+    
+    ).join('')}
     </div>
   `;
-  
+
   content.innerHTML = html;
+
+   // JS: Event listener to load Copy Trading History
+document.getElementById("loadCopyHistoryBtn").addEventListener("click", () => {
+  renderCopyTradingHistory(user.copyTradingActive);
+});
 }
+
+// function openCopyTradeModal(btn) {
+//   // Parse arrays safely
+//   const trades = JSON.parse(btn.dataset.trades || "[]");
+//   const history = JSON.parse(btn.dataset.history || "[]");
+
+//   // Fill modal fields
+//   document.getElementById("name").textContent = btn.dataset.name;
+//   document.getElementById("level").textContent = btn.dataset.level;
+//   document.getElementById("rating").textContent = btn.dataset.rating;
+//   document.getElementById("trades").textContent = trades.length || 0;
+//   document.getElementById("commission").textContent = btn.dataset.commission;
+//   document.getElementById("pnl").textContent = btn.dataset.pnl;
+//   document.getElementById("profileId").textContent = btn.dataset.profileid;
+//   document.getElementById("accountLevel").textContent = btn.dataset.accountlevel;
+//   document.getElementById("type").textContent = btn.dataset.type;
+//   document.getElementById("followers").textContent = btn.dataset.followers;
+//   document.getElementById("watchers").textContent = btn.dataset.watchers;
+//   document.getElementById("profitableTrade").textContent = btn.dataset.profitabletrade;
+
+//   // If you have a trader photo
+//   if (btn.dataset.photo) {
+//     document.getElementById("photo").src = btn.dataset.photo;
+//   }
+
+//   // If you want to display trade history (optional)
+//   const historyList = document.getElementById("historyList");
+//   if (historyList) {
+//     historyList.innerHTML = history.length
+//       ? history.map((h) => `<li>${h}</li>`).join("")
+//       : "<li>No history available</li>";
+//   }
+
+//   // Show modal
+//   document.getElementById("copyTradeModal").classList.add("show");
+// }
+
+
 
 function renderLiveStreamPage() {
   const user = getUserData();
@@ -1000,38 +1935,78 @@ function renderFundAccountPage() {
   const user = getUserData();
   const html = `
     <div class="hero-banner">
-      <h1 class="hero-title">Fund Account 💰</h1>
-      <p style="font-size: 1rem; opacity: 0.9;">Current Balance: $${user.balance.toFixed(2)}</p>
+  <h1 class="hero-title">Fund Account 💰</h1>
+  <p style="font-size: 1rem; opacity: 0.9;">Current Balance: $${user.balance.toFixed(2)}</p>
+</div>
+
+<div class="card" style="max-width: 42rem;">
+  <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1.5rem;">Make Deposit</h2>
+
+  <!-- 👇 Wallet Display Area -->
+  <div id="walletDisplay" style="display: none; text-align: center; margin-bottom: 1.5rem;">
+    <img id="walletQr" src="" alt="Wallet QR" style="width: 140px; height: 140px; margin-bottom: 1rem; border-radius: 8px; border: 1px solid #eee;">
+    <p style="font-size: 0.95rem; word-break: break-all; margin: 0;">
+      <strong id="walletLabel"></strong>: 
+      <span id="walletAddress"></span>
+    </p>
+  </div>
+
+  <form id="depositForm">
+    <div class="form-group">
+      <label for="depositWallet">Deposit Channel</label>
+      <select id="depositWallet" class="input" required>
+        <option value="">Select a Wallet</option>
+        <option value="bitcoin">Bitcoin</option>
+        <option value="ethereum">Ethereum</option>
+        <option value="usdt">USDT (TRC20)</option>
+        <option value="litecoin">BNB(Bep20)</option>
+        <option value="bank">Bank Transfer</option>
+        <option value="card">Credit/Debit Card</option>
+      </select>
     </div>
-    <div class="card" style="max-width: 42rem;">
-      <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1.5rem;">Make Deposit</h2>
-      <form id="depositForm">
-        <div class="form-group">
-          <label for="depositWallet">Deposit Channel</label>
-          <select id="depositWallet" class="input" required>
-            <option value="">Select a Wallet</option>
-            <option value="bitcoin">Bitcoin${user.accounts.btc.address ? ' - ' + user.accounts.btc.address.substring(0, 10) + '...' : ''}</option>
-            <option value="ethereum">Ethereum${user.accounts.eth.address ? ' - ' + user.accounts.eth.address.substring(0, 10) + '...' : ''}</option>
-            <option value="usdt">USDT (TRC20)${user.accounts.usdt.address ? ' - ' + user.accounts.usdt.address.substring(0, 10) + '...' : ''}</option>
-            <option value="litecoin">Litecoin${user.accounts.ltc.address ? ' - ' + user.accounts.ltc.address.substring(0, 10) + '...' : ''}</option>
-            <option value="bank">Bank Transfer</option>
-            <option value="card">Credit/Debit Card</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="depositAmount">Amount ($)</label>
-          <input type="number" id="depositAmount" class="input" placeholder="Enter Amount ($)" step="0.01" min="10" required>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Submit Deposit Request</button>
-      </form>
+
+    <div class="form-group">
+      <label for="depositAmount">Amount ($)</label>
+      <input type="number" id="depositAmount" class="input" placeholder="Enter Amount ($)" step="0.01" min="10" required>
     </div>
-    <div style="text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid hsl(var(--border));">
-      <p class="text-muted small">COPYRIGHT ©2025 Dashponts, All rights Reserved</p>
-    </div>
+
+    <button type="submit" class="btn btn-primary btn-block">Submit Deposit Request</button>
+  </form>
+</div>
+
+<div style="text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid hsl(var(--border));">
+  <p class="text-muted small">COPYRIGHT ©2025 smartgentrade, All rights Reserved</p>
+</div>
+
+
   `;
   
   content.innerHTML = html;
   
+  const walletDisplay = document.getElementById("walletDisplay");
+  const walletLabel = document.getElementById("walletLabel");
+  const walletAddress = document.getElementById("walletAddress");
+  const walletQr = document.getElementById("walletQr");
+
+  // Replace with actual addresses from user object
+  const wallets = {
+    bitcoin: { label: "Bitcoin", address: "bc1ptv63qlmsj7x0la8nzkjafg2ylzcunszp0mz9yt8zr3vwkc82e9us0umug6", qr: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=bc1ptv63qlmsj7x0la8nzkjafg2ylzcunszp0mz9yt8zr3vwkc82e9us0umug6" },
+    ethereum: { label: "Ethereum", address: "0xDB95241B0889aA25Ca68C751e2d04ef7BA609b1E", qr: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=0xDB95241B0889aA25Ca68C751e2d04ef7BA609b1E" },
+    usdt: { label: "USDT (TRC20)", address: "TG3tHHSCx43bNeVTN7Gj8ZRZwLkiFxv4Jh", qr: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=G3tHHSCx43bNeVTN7Gj8ZRZwLkiFxv4Jh" },
+    litecoin: { label: "BNB(Bep20)", address: "0xDB95241B0889aA25Ca68C751e2d04ef7BA609b1E", qr: "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=0xDB95241B0889aA25Ca68C751e2d04ef7BA609b1E" },
+  };
+
+  document.getElementById("depositWallet").addEventListener("change", function() {
+    const value = this.value;
+    if (wallets[value] && wallets[value].address) {
+      walletDisplay.style.display = "block";
+      walletLabel.textContent = wallets[value].label;
+      walletAddress.textContent = wallets[value].address;
+      walletQr.src = wallets[value].qr;
+    } else {
+      walletDisplay.style.display = "none";
+    }
+  });
   document.getElementById('depositForm').addEventListener('submit', (e) => {
     e.preventDefault();
     const wallet = document.getElementById('depositWallet').value;
@@ -1049,12 +2024,12 @@ function renderFundAccountPage() {
       status: 'pending'
     });
     
-    Swal.fire({ 
-      icon: 'success', 
-      title: 'Deposit Submitted!', 
-      html: `<strong>Method:</strong> ${wallet}<br><strong>Amount:</strong> $${amount.toFixed(2)}<br><br>Your deposit is being processed.`,
-      confirmButtonText: 'OK' 
-    });
+    // Swal.fire({ 
+    //   icon: 'success', 
+    //   title: 'Deposit Submitted!', 
+    //   html: `<strong>Method:</strong> ${wallet}<br><strong>Amount:</strong> $${amount.toFixed(2)}<br><br>Your deposit is being processed.`,
+    //   confirmButtonText: 'OK' 
+    // });
     e.target.reset();
   });
 }
@@ -1133,10 +2108,10 @@ function renderInvestmentPage() {
   processDailyProfits();
   
   const activeTransactions = user.transactions.filter(t => t.status === 'active' || t.type === 'trade');
-  const activeInvestments = user.activeInvestments.filter(inv => inv.status === 'active') || [];
+  const plan = user.plan.filter(inv => inv.status === 'active') || [];
   const totalPnL = user.profit;
   
-  const investmentsHTML = activeInvestments.length > 0 ? activeInvestments.map(inv => {
+  const investmentsHTML = plan.length > 0 ? plan.map(inv => {
     const dailyProfit = inv.amount * inv.dailyProfitRate;
     const progress = (inv.daysElapsed / inv.duration) * 100;
     const daysRemaining = inv.duration - inv.daysElapsed;
@@ -1195,11 +2170,11 @@ function renderInvestmentPage() {
       </div>
       <div class="card stat-card">
         <div class="stat-label">Active Investments</div>
-        <div class="stat-value">${activeInvestments.length}</div>
+        <div class="stat-value">${plan.length}</div>
       </div>
       <div class="card stat-card">
         <div class="stat-label">Investment Profit</div>
-        <div class="stat-value" style="color: hsl(var(--chart-2));">$${activeInvestments.reduce((sum, inv) => sum + inv.totalProfit, 0).toFixed(2)}</div>
+        <div class="stat-value" style="color: hsl(var(--chart-2));">$${plan.reduce((sum, inv) => sum + inv.totalProfit, 0).toFixed(2)}</div>
       </div>
       <div class="card stat-card">
         <div class="stat-label">Total P&L</div>
@@ -1207,7 +2182,7 @@ function renderInvestmentPage() {
       </div>
     </div>
     
-    ${activeInvestments.length > 0 ? `
+    ${plan.length > 0 ? `
       <div style="margin-bottom: 1.5rem;">
         <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem;">Active Investment Plans</h2>
         ${investmentsHTML}
@@ -1231,7 +2206,7 @@ function renderInvestmentPage() {
                 <tr>
                   <td style="font-weight: 600;">${new Date(t.timestamp).toLocaleDateString()}</td>
                   <td><span class="badge">${t.type}</span></td>
-                  <td>$${t.amount.toFixed(2)}</td>
+                  <td>$${t.amount}</td>
                   <td><span class="badge" style="${t.status === 'active' || t.status === 'completed' ? 'background-color: hsl(var(--chart-2)); color: white;' : ''}">${t.status}</span></td>
                 </tr>
               `).join('')}
@@ -1311,37 +2286,41 @@ function renderWithdrawalPage() {
       </div>
     ` : ''}
   `;
-  
+
   content.innerHTML = html;
-  
-  document.getElementById('withdrawalForm').addEventListener('submit', (e) => {
+
+  // ✅ make the callback async so we can use await inside
+  document.getElementById('withdrawalForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const method = document.getElementById('withdrawalWallet').value;
     const amount = parseFloat(document.getElementById('withdrawalAmount').value);
     const address = document.getElementById('withdrawalAddress').value;
-    
+
     if (amount > user.balance) {
       Swal.fire({ icon: 'error', title: 'Insufficient Balance', text: 'You do not have enough funds for this withdrawal', confirmButtonText: 'OK' });
       return;
     }
-    
+
     if (amount < 10) {
       Swal.fire({ icon: 'warning', title: 'Invalid Amount', text: 'Minimum withdrawal amount is $10', confirmButtonText: 'OK' });
       return;
     }
-    
-    addWithdrawal({
-      method: method,
-      amount: amount,
-      address: address
+
+    // ✅ call async withdrawal logic
+    await addWithdrawal({
+      method,
+      amount,
+      address
     });
-    
-    Swal.fire({ 
-      icon: 'success', 
-      title: 'Withdrawal Submitted!', 
+
+    // Optionally show success alert
+    Swal.fire({
+      icon: 'success',
+      title: 'Withdrawal Submitted!',
       html: `<strong>Method:</strong> ${method}<br><strong>Amount:</strong> $${amount.toFixed(2)}<br><strong>Address:</strong> ${address}<br><br>Your withdrawal is being processed.`,
-      confirmButtonText: 'OK' 
+      confirmButtonText: 'OK'
     });
+
     e.target.reset();
     renderWithdrawalPage();
   });
@@ -1355,7 +2334,7 @@ function renderReferralsPage() {
   const html = `
     <div style="margin-bottom: 1.5rem;">
       <h1 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">Referral Program</h1>
-      <p class="text-muted">Earn rewards by inviting friends to Dashpont</p>
+      <p class="text-muted">Earn rewards by inviting friends to smartgentrade</p>
     </div>
     
     <div class="stats-grid">
@@ -1522,10 +2501,11 @@ function handleEditProfile() {
   }
 }
 
-function handleUpdateKYC() {
-  apiLog('UPDATE_KYC_CLICKED', {});
-  Swal.fire({ icon: 'info', title: 'KYC Verification', text: 'Please upload your documents through the secure portal', confirmButtonText: 'OK' });
-}
+// ==========================
+// 🔹 KYC HANDLER (All Pure JS)
+// ==========================
+
+
 
 // ==================== MODALS ====================
 
@@ -1560,13 +2540,35 @@ function openTradeModal(symbol, type, price) {
   };
 }
 
-function openCopyTradeModal(trader) {
+function openCopyTradeModal(btn) {
+  // Convert button dataset into a trader object
+  const trader = {
+    name: btn.dataset.name,
+    level: btn.dataset.level,
+    rating: btn.dataset.rating,
+    trades: JSON.parse(btn.dataset.trades || "[]"),
+    commission: btn.dataset.commission,
+    pnl: btn.dataset.pnl,
+     photo: btn.dataset.photo,
+    profileId: btn.dataset.profileid,
+    accountLevel: btn.dataset.accountlevel,
+    type: btn.dataset.type,
+    history: JSON.parse(btn.dataset.history || "[]"),
+    followers: btn.dataset.followers,
+    watchers: btn.dataset.watchers,
+    profitableTrade: btn.dataset.profitabletrade
+  };
+
+  // For debugging
+  console.log("Trader info:", trader);
+
   const modal = document.getElementById('copyTradeModal');
   const profile = document.getElementById('copyTraderProfile');
-  
+
   profile.innerHTML = `
     <div class="trader-avatar" style="background-color: hsl(var(--primary) / 0.2); display: flex; align-items: center; justify-content: center; font-weight: 600; color: hsl(var(--primary)); border: 2px solid hsl(var(--primary));">
-      ${trader.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+       <img src=${trader.photo} style="width:50px; height:50px; border-radius:50%;"/>
+         
     </div>
     <div style="flex: 1;">
       <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
@@ -1601,58 +2603,211 @@ function openCopyTradeModal(trader) {
         </div>
         <div style="grid-column: 1 / -1;">
           <div class="stat-label">Profitable Trade %</div>
-          <div class="stat-value">${trader.profitableTrade}%</div>
+          <div class="stat-value">${trader.profitableTrade}</div>
         </div>
       </div>
     </div>
   `;
-  
+
   modal.classList.add('active');
-  
-  document.getElementById('startCopyTrade').onclick = () => {
-    const amount = parseFloat(document.getElementById('copyAmount').value);
-    const duration = parseInt(document.getElementById('copyDuration').value);
-    if (amount && duration) {
-      const user = getUserData();
-      const copyTradeEntry = {
-        trader: trader.name,
-        amount: amount,
-        duration: duration,
-        startDate: new Date().toISOString()
-      };
-      
-      if (!user.copyTradingActive) {
-        user.copyTradingActive = [];
-      }
-      user.copyTradingActive.push(copyTradeEntry);
-      updateUserData(user);
-      
-      apiLog('COPY_TRADE_STARTED', copyTradeEntry);
-      Swal.fire({ 
-        icon: 'success', 
-        title: 'Copy Trading Started!', 
-        html: `<strong>Trader:</strong> ${trader.name}<br><strong>Amount:</strong> $${amount.toFixed(2)}<br><strong>Duration:</strong> ${duration} days`,
-        confirmButtonText: 'OK' 
+
+  // Copy Trade start button logic
+ // Copy Trade start button logic
+document.getElementById("startCopyTrade").onclick = async () => {
+  const amount = parseFloat(document.getElementById("copyAmount").value);
+  const duration = parseInt(document.getElementById("copyDuration").value);
+
+  if (!amount || !duration) {
+    Swal.fire({
+      icon: "warning",
+      title: "Missing Fields",
+      text: "Please enter both amount and duration.",
+    });
+    return;
+  }
+
+  const user = getUserData(); // from local storage/session
+  const traderName = trader.name; // variable passed from openCopyTradeModal()
+
+  // Check if user has enough balance
+  if (user.balance < amount) {
+    Swal.fire({
+      icon: "error",
+      title: "Insufficient Balance",
+      text: `You only have ${user.balance} available, which is not enough for this trade.`,
+    });
+    return;
+  }
+
+
+  try {
+    const res = await fetch("https://wealt-render.onrender.com/transactions/copy-trade/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: user._id,
+        traderName,
+        amount,
+        duration,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      Swal.fire({
+        icon: "success",
+        title: "Copy Trade Started!",
+        html: `
+          <strong>Trader:</strong> ${traderName}<br>
+          <strong>Amount:</strong> $${amount.toFixed(2)}<br>
+          <strong>Duration:</strong> ${duration} days
+        `,
       });
-      modal.classList.remove('active');
-      document.getElementById('copyAmount').value = '';
-      document.getElementById('copyDuration').value = '';
+
+      // Update user locally
+      user.copyTradingActive = user.copyTradingActive || [];
+      user.copyTradingActive.push(data.data);
+      updateUserData(user);
+
+      // Close modal and reset
+      document.getElementById("copyTradeModal").classList.remove("active");
+      document.getElementById("copyAmount").value = "";
+      document.getElementById("copyDuration").value = "";
+var userCopyTrades=user.copyTradingActive
+      renderCopyTradingHistory(userCopyTrades)
+    } else {
+      Swal.fire({ icon: "error", title: "Failed", text: data.error });
     }
-  };
+  } catch (err) {
+    console.error(err);
+    Swal.fire({
+      icon: "error",
+      title: "Server Error",
+      text: "Something went wrong. Try again later.",
+    });
+  }
+};
+
+}
+function renderCopyTradingHistory(userCopyTrades) {
+  // Get container or create one
+ let container = document.getElementById("content");
+container.innerHTML = ""; // clears previous content
+// append table inside container
+
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "copyTradeHistoryContainer";
+    container.style.width = "100%";
+    container.style.marginTop = "2rem";
+    document.body.appendChild(container);
+  }
+
+  // Clear previous content
+  container.innerHTML = "";
+
+  // Title
+  const title = document.createElement("h2");
+  title.textContent = "Copy Trading History";
+  title.style.fontSize = "1.75rem";
+  title.style.fontWeight = "700";
+  title.style.marginBottom = "1rem";
+  title.style.color = "hsl(var(--foreground))";
+  container.appendChild(title);
+
+  // Table container
+  const tableContainer = document.createElement("div");
+  tableContainer.style.overflowX = "auto";
+  container.appendChild(tableContainer);
+
+  // Table
+  const table = document.createElement("table");
+  table.style.width = "100%";
+  table.style.borderCollapse = "collapse";
+  table.style.minWidth = "600px";
+
+  // Header
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  const headers = ["Trader", "Amount", "Duration", "Start Date", "Status", "Action"];
+  headers.forEach(h => {
+    const th = document.createElement("th");
+    th.textContent = h;
+    th.style.padding = "12px 8px";
+    th.style.textAlign = "left";
+    th.style.borderBottom = "1px solid hsl(var(--border))";
+    th.style.color = "hsl(var(--muted-foreground))";
+    th.style.backgroundColor = "hsl(var(--card))";
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  // Body
+  const tbody = document.createElement("tbody");
+
+  userCopyTrades.forEach(trade => {
+    const tr = document.createElement("tr");
+
+    // Trader
+    const tdTrader = document.createElement("td");
+    tdTrader.textContent = trade.trader ?? "Unknown";
+    tdTrader.style.padding = "10px 8px";
+    tdTrader.style.color = "hsl(var(--foreground))";
+    tr.appendChild(tdTrader);
+
+    // Amount
+    const tdAmount = document.createElement("td");
+    tdAmount.textContent = trade.amount ?? "-";
+    tdAmount.style.padding = "10px 8px";
+    tdAmount.style.color = "hsl(var(--accent))";
+    tr.appendChild(tdAmount);
+
+    // Duration
+    const tdDuration = document.createElement("td");
+    tdDuration.textContent = trade.duration ? `${trade.duration} days` : "-";
+    tdDuration.style.padding = "10px 8px";
+    tdDuration.style.color = "hsl(var(--foreground))";
+    tr.appendChild(tdDuration);
+
+    // Start Date
+    const tdDate = document.createElement("td");
+    tdDate.textContent = trade.startDate ? new Date(trade.startDate).toLocaleString() : "-";
+    tdDate.style.padding = "10px 8px";
+    tdDate.style.color = "hsl(var(--muted-foreground))";
+    tr.appendChild(tdDate);
+
+    // Status
+    const tdStatus = document.createElement("td");
+    tdStatus.textContent = trade.status ?? "-";
+    tdStatus.style.padding = "10px 8px";
+    tdStatus.style.fontWeight = "600";
+    tdStatus.style.color = trade.status === "ACTIVE" ? "hsl(var(--primary))" : "hsl(var(--destructive))";
+    tr.appendChild(tdStatus);
+
+    // Action
+    // const tdAction = document.createElement("td");
+    // const btn = document.createElement("button");
+    // btn.textContent = "View";
+    // btn.style.padding = "6px 12px";
+    // btn.style.border = "none";
+    // btn.style.borderRadius = "6px";
+    // btn.style.cursor = "pointer";
+    // btn.style.backgroundColor = "hsl(var(--primary))";
+    // btn.style.color = "hsl(var(--primary-foreground))";
+    // btn.onmouseover = () => btn.style.backgroundColor = "hsl(var(--primary-hover))";
+    // btn.onmouseout = () => btn.style.backgroundColor = "hsl(var(--primary))";
+    // tdAction.appendChild(btn);
+    // tr.appendChild(tdAction);
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  tableContainer.appendChild(table);
 }
 
-// Close modals
-document.querySelectorAll('.modal').forEach(modal => {
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) {
-      modal.classList.remove('active');
-    }
-  });
-  
-  modal.querySelector('.modal-close').addEventListener('click', () => {
-    modal.classList.remove('active');
-  });
-});
 
 // ==================== INITIALIZATION ====================
 

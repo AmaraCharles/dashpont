@@ -1,8 +1,8 @@
-# Dashpont - Copy Trading & Investment Platform
+# smartgentrade - Copy Trading & Investment Platform
 
 ## Overview
 
-Dashpont is a copy trading and investment platform that enables users to trade forex, CFD, crypto, stocks, futures, and options. The platform features social trading capabilities where users can follow and mirror trades from master traders. Built with a modern TypeScript stack, it provides real-time market data visualization, account management, and automated copy trading functionality.
+smartgentrade is a copy trading and investment platform that enables users to trade forex, CFD, crypto, stocks, futures, and options. The platform features social trading capabilities where users can follow and mirror trades from master traders. Built with a modern TypeScript stack, it provides real-time market data visualization, account management, and automated copy trading functionality.
 
 ## User Preferences
 

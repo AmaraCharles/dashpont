@@ -3,26 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashpont - Copy Trading & Investment Platform</title>
-    <meta name="description" content="Advanced copy trading platform with real-time forex, crypto, and stock trading. Follow master traders and grow your portfolio with Dashpont.">
+    <title>smartgentrade - Copy Trading & Investment Platform</title>
+    <meta name="description" content="Advanced copy trading platform with real-time forex, crypto, and stock trading. Follow master traders and grow your portfolio with smartgentrade.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./styles.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-</head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <body>
     <div class="app">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div class="logo">
-                    <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <!-- <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
                         <polyline points="17 6 23 6 23 12"></polyline>
-                    </svg>
-                    <span class="logo-text">Dashpont</span>
+                    </svg> -->
+                    <span class="logo-text"><img src="./logo.png" width="150px" height="50px" alt=""></span>
                 </div>
                 <button class="sidebar-close" id="sidebarClose" aria-label="Close menu">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -40,7 +43,7 @@
                             <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
                         </svg>
                         <span>Market</span>
-                        <span class="nav-emoji">🔥</span>
+                        <span class="nav-emoji"></span>
                     </a>
                     <a href="#social-trading" class="nav-link" data-page="social-trading">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -50,7 +53,7 @@
                             <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                         </svg>
                         <span>Social Trading</span>
-                        <span class="nav-emoji">🔥</span>
+                        <span class="nav-emoji"></span>
                     </a>
                     <a href="#live-stream" class="nav-link" data-page="live-stream">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -58,7 +61,17 @@
                             <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path>
                         </svg>
                         <span>Live Stream</span>
-                        <span class="nav-emoji">📊🔥</span>
+                        <span class="nav-emoji"></span>
+                    </a>
+
+                     <a href="#trade" class="nav-link" data-page="trade">
+                      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 17l6-6-6-6"></path> <!-- Left arrow (Sell) -->
+  <path d="M20 17l-6-6 6-6"></path> <!-- Right arrow (Buy) -->
+</svg>
+
+                        <span>Place Trade</span>
+                        <span class="nav-emoji"></span>
                     </a>
                     <a href="#dashboard" class="nav-link" data-page="dashboard">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -121,7 +134,7 @@
                     </a>
                 </div>
                 
-                <div class="nav-section">
+                <!-- <div class="nav-section">
                     <div class="nav-section-label">ADMIN</div>
                     <a href="#admin" class="nav-link" data-page="admin">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -131,7 +144,7 @@
                         <span>Admin Panel</span>
                         <span class="nav-emoji">🔒</span>
                     </a>
-                </div>
+                </div> -->
             </nav>
 
             <div class="sidebar-footer">
@@ -149,6 +162,25 @@
             </div>
         </aside>
 
+        <script>
+            document.addEventListener("DOMContentLoaded", () => {
+  const sidebar = document.getElementById('sidebar');
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  const sidebarClose = document.getElementById('sidebarClose');
+  const navLinks = document.querySelectorAll('.nav-link');
+  const content = document.getElementById('content');
+
+  // ✅ Collapse by default on first load
+  sidebar.classList.add('collapsed');
+
+  
+  if (window.innerWidth > 700) {
+  sidebar.classList.remove('collapsed');
+}
+
+});
+
+        </script>
         <!-- Main Content -->
         <div class="main-content">
             <header class="header">
@@ -204,6 +236,9 @@
             </div>
         </div>
     </div>
+
+    <div id="copyTradeHistoryContainer"></div>
+
 
     <div class="modal" id="copyTradeModal">
         <div class="modal-content modal-lg">

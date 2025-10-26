@@ -15,6 +15,8 @@
   --muted: 220 10% 89%;
   --muted-foreground: 220 8% 35%;
   --accent: 220 12% 87%;
+   --accentt:  0 0% 0%;
+   --accenttt: 120 70% 50%;
   --accent-foreground: 220 10% 15%;
   --destructive: 0 75% 45%;
   --destructive-foreground: 0 5% 98%;
@@ -32,15 +34,18 @@
   --card-foreground: 220 5% 95%;
   --card-border: 220 15% 22%;
   --sidebar: 220 18% 16%;
+
   --sidebar-foreground: 220 5% 95%;
   --sidebar-border: 220 15% 24%;
-  --primary: 215 95% 60%;
+  --primary: 230, 91%, 49%;
   --primary-foreground: 220 5% 98%;
   --secondary: 220 15% 22%;
   --secondary-foreground: 220 5% 95%;
   --muted: 220 12% 20%;
   --muted-foreground: 220 10% 65%;
   --accent: 220 15% 19%;
+   --accentt: 220 12% 87%;
+    --accenttt: 120 70% 50%;
   --accent-foreground: 220 5% 95%;
   --destructive: 0 75% 55%;
   --destructive-foreground: 0 5% 98%;
@@ -57,12 +62,13 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
+
 
 .app {
   display: flex;
@@ -909,4 +915,358 @@ tbody tr:hover {
 
 .claimed .reward-amount {
   color: hsl(var(--muted-foreground));
+}
+
+
+/* ========= TRADE PAGE LAYOUT ========= */
+.trade-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 30px;
+  width: 100%;
+  padding: 30px 20px;
+  font-family: 'Inter', sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  min-height: 100vh;
+  animation: fadeIn 0.8s ease-in-out;
+}
+
+/* ========= INTRO SECTION ========= */
+/* Trade Intro Section */
+.trade-intro {
+  max-width: 800px;
+  text-align: center;
+  color: hsl(var(--foreground)); /* text color adapts to theme */
+  animation: fadeUp 1s ease forwards;
+}
+
+.trade-intro h3 {
+  font-size: 28px;
+  font-weight: 700;
+  color: hsl(var( --accentt)); /* accent color from theme */
+  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+}
+
+.trade-intro p {
+  font-size: 16px;
+  color: hsl(var(--muted-foreground)); /* muted text from theme */
+  line-height: 1.6;
+  margin: 0 auto;
+  max-width: 700px;
+}
+
+
+/* ========= TRADINGVIEW WIDGET ========= */
+.tv-widget {
+  width: 100%;
+  max-width: 900px;
+  height: 400px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 25px rgba(0,0,0,0.25);
+  animation: fadeUp 1.2s ease forwards;
+}
+
+/* ========= TRADING CARD ========= */
+.trading-card {
+  width: 100%;
+  max-width: 500px;
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-radius: 14px;
+  padding: 25px;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.35);
+  animation: fadeUp 1.4s ease forwards;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.trading-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* ========= CARD HEADER ========= */
+.trading-card .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.trading-card .header .balance {
+  font-size: 15px;
+  color: hsl(var(--accenttt));
+}
+
+.trading-card .header .live {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  animation: pulse 2s infinite;
+}
+
+/* ========= FORM ELEMENTS ========= */
+.trading-card label {
+  display: block;
+  margin-top: 12px;
+  font-size: 14px;
+  color: hsl(var(--muted-foreground));
+}
+
+.trading-card input,
+.trading-card select {
+  width: 100%;
+  padding: 10px;
+  margin-top: 6px;
+  border-radius: 6px;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  transition: border 0.3s ease, background 0.3s ease;
+}
+
+.trading-card input:focus,
+.trading-card select:focus {
+  outline: none;
+  border: 1px solid hsl(var(--primary));
+}
+
+/* ========= ACTION BUTTONS ========= */
+.actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 20px;
+  gap: 10px;
+}
+
+.actions .buy,
+.actions .sell {
+  flex: 1;
+  padding: 10px 0;
+  border-radius: 8px;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  color: #fff;
+  transition: transform 0.3s ease, background 0.3s ease;
+}
+
+.actions .buy {
+  background: hsl(var(--accenttt));
+}
+
+.actions .buy:hover {
+  background: hsl(var(--primary-foreground));
+  transform: translateY(-2px);
+}
+
+.actions .sell {
+  background: hsl(var(--destructive));
+}
+
+.actions .sell:hover {
+  background: hsl(var(--destructive-foreground));
+  transform: translateY(-2px);
+}
+
+.actions button:disabled {
+  background: hsl(var(--border)) !important;
+  color: hsl(var(--muted-foreground));
+  cursor: not-allowed;
+}
+
+/* ========= LEVERAGE BUTTONS (UNCHANGED) ========= */
+.leverage-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.leverage-buttons button {
+  flex: 1;
+  background: #1348e6;
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 0;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.leverage-buttons button.active {
+  background: #0C34F0;
+  color: #0b0e11;
+  font-weight: 600;
+}
+
+/* ========= TRADE HISTORY TOP ========= */
+.trade-history-top .widget-placeholder {
+  flex: 1;
+  min-width: 250px;
+  background-color: hsl(var(--card));
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  transition: background 0.3s, color 0.3s, box-shadow 0.3s;
+  margin-top: 10px;
+}
+
+.trade-history-top .widget-placeholder h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: hsl(var(--primary)); /* accent color for headings */
+  letter-spacing: 0.5px;
+}
+
+.trade-history-top .widget-placeholder p {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: hsl(var(--foreground)); /* body text uses foreground for better readability */
+  margin-top: 0.25rem;
+}
+
+/* Optional: subtle background gradient for more depth */
+.trade-history-top .widget-placeholder {
+  background: linear-gradient(145deg, hsl(var(--card)) 0%, hsl(var(--card-border)) 100%);
+}
+
+/* ========= LOADER ========= */
+#loader {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255,255,255,0.05);
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.spinner {
+  border: 6px solid hsl(var(--muted));
+  border-top: 6px solid hsl(var(--primary));
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ========= PROFIT / LOSS ========= */
+.won {
+  color: hsl(var(--chart-2));
+  font-weight: bold;
+}
+
+.lost {
+  color: hsl(var(--destructive));
+  font-weight: bold;
+}
+
+/* ========= HISTORY BUTTON ========= */
+.history-section {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.history-btn {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.history-btn:hover {
+  background-color: hsl(var(--primary-foreground));
+}
+
+.history-btn i {
+  margin-right: 5px;
+}
+/* Analytics Section */
+.trade-analytics {
+  margin-top: 2rem;
+  width: 100%;
+}
+
+.trade-analytics h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: hsl(var(--foreground)); /* theme-aware text */
+  letter-spacing: 0.5px;
+}
+
+/* Charts Container */
+.charts-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Individual Chart Cards */
+.chart-card {
+  background: hsl(var(--card)); /* theme-aware background */
+  padding: 1rem;
+  border-radius: 12px;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.35);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+
+.chart-card h4 {
+  margin-bottom: 0.5rem;
+  color: hsl(var(--accent)); /* heading stands out */
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: 0.25px;
+}
+
+/* Canvas styling */
+.chart-card canvas {
+  width: 100% !important;
+  height: 250px !important;
+}
+
+/* Optional hover effect */
+.chart-card:hover {
+  box-shadow: 0 10px 35px rgba(0,0,0,0.45);
+  transform: translateY(-2px);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+/* ========= ANIMATIONS ========= */
+@keyframes fadeUp {
+  0% { opacity: 0; transform: translateY(40px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
 }
